@@ -30,6 +30,7 @@ pub enum TokenKind {
     // Keywords
     Class,
     Interface,
+    Enum,
     Function,
     Extern,
     Let,
@@ -49,6 +50,7 @@ pub enum TokenKind {
     New,
     Static,
     Import,
+    Extend,
 
     // Symbols
     Semicolon,
@@ -66,7 +68,8 @@ pub enum TokenKind {
     SquareBracketClose,
     Plus,
     Minus,
-    Astrisk,
+    Asterisk,
+    AsteriskEqual,
     Slash,
     DoubleSlash,
     Equal,
@@ -81,7 +84,6 @@ pub enum TokenKind {
     LeftShift,
     PlusEqual,
     MinusEqual,
-    StarEqual,
     SlashEqual,
     RightShiftEqual,
     LeftShiftEqual,
@@ -110,6 +112,7 @@ impl TokenKind {
         match string.as_str() {
             "class" => TokenKind::Class,
             "interface" => TokenKind::Interface,
+            "enum" => TokenKind::Enum,
             "function" => TokenKind::Function,
             "extern" => TokenKind::Extern,
             "let" => TokenKind::Let,
@@ -126,6 +129,20 @@ impl TokenKind {
             "new" => TokenKind::New,
             "static" => TokenKind::Static,
             "import" => TokenKind::Import,
+            "extend" => TokenKind::Extend,
+            "int8" => TokenKind::Int8,
+            "uint8" => TokenKind::UInt8,
+            "int16" => TokenKind::Int16,
+            "uint16" => TokenKind::UInt16,
+            "int32" => TokenKind::Int32,
+            "uint32" => TokenKind::UInt32,
+            "int64" => TokenKind::Int64,
+            "uint64" => TokenKind::UInt64,
+            "float32" => TokenKind::Float32,
+            "float64" => TokenKind::Float64,
+            "bool" => TokenKind::Boolean,
+            "usize" => TokenKind::USize,
+            "void" => TokenKind::Void,
             _ => TokenKind::Identifier,
         }
     }
@@ -155,7 +172,8 @@ impl TokenKind {
         match self {
             TokenKind::Plus
             | TokenKind::Minus
-            | TokenKind::Astrisk
+            | TokenKind::Asterisk
+            | TokenKind::AsteriskEqual
             | TokenKind::Slash
             | TokenKind::Equal
             | TokenKind::DoubleEqual
@@ -168,7 +186,6 @@ impl TokenKind {
             | TokenKind::LeftShift
             | TokenKind::PlusEqual
             | TokenKind::MinusEqual
-            | TokenKind::StarEqual
             | TokenKind::SlashEqual
             | TokenKind::RightShiftEqual
             | TokenKind::LeftShiftEqual
