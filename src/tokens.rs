@@ -2,9 +2,9 @@ use crate::utils::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    kind: TokenKind,
-    slice: String,
-    span: Span,
+    pub kind: TokenKind,
+    pub slice: String,
+    pub span: Span,
 }
 
 #[repr(u8)]
@@ -24,13 +24,16 @@ pub enum TokenKind {
     Boolean,
     USize,
     Void,
+    Char,
+    String,
 
     // Keywords
     Class,
+    Interface,
     Function,
     Extern,
     Let,
-    Mut,
+    Mutable,
     Var,
     If,
     Else,
@@ -43,6 +46,9 @@ pub enum TokenKind {
     False,
     As,
     Unsafe,
+    New,
+    Static,
+    Import,
 
     // Symbols
     Semicolon,
@@ -83,17 +89,47 @@ pub enum TokenKind {
     DoubleAmpersand,
     Pipe,
     DoublePipe,
+    Arrow,
+    Comma,
 
     // Literal
     Identifier,
-    Integer,
-    Float,
+    IntegerNumber,
+    FloatNumber,
+    HexidecmialNumber,
+    OctalNumber,
+    BinaryNumber,
 
     // Other
+    EndLine,
     Unknown,
 }
 
 impl TokenKind {
+    pub fn from_string(string: String) -> TokenKind {
+        match string.as_str() {
+            "class" => TokenKind::Class,
+            "interface" => TokenKind::Interface,
+            "function" => TokenKind::Function,
+            "extern" => TokenKind::Extern,
+            "let" => TokenKind::Let,
+            "mutable" => TokenKind::Mutable,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "while" => TokenKind::While,
+            "loop" => TokenKind::Loop,
+            "return" => TokenKind::Return,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
+            "as" => TokenKind::As,
+            "unsafe" => TokenKind::Unsafe,
+            "new" => TokenKind::New,
+            "static" => TokenKind::Static,
+            "import" => TokenKind::Import,
+            _ => TokenKind::Identifier,
+        }
+    }
+
     pub fn is_premative_datatype(&self) -> bool {
         match self {
             TokenKind::Int8
@@ -108,7 +144,9 @@ impl TokenKind {
             | TokenKind::Float64
             | TokenKind::Boolean
             | TokenKind::USize
-            | TokenKind::Void => true,
+            | TokenKind::Void
+            | TokenKind::Char
+            | TokenKind::String => true,
             _ => false,
         }
     }
@@ -137,7 +175,9 @@ impl TokenKind {
             | TokenKind::Pipe
             | TokenKind::DoublePipe
             | TokenKind::DoubleAmpersand
-            | TokenKind::As => true,
+            | TokenKind::As
+            | TokenKind::Comma
+            | TokenKind::Arrow => true,
             _ => false,
         }
     }
@@ -154,8 +194,11 @@ impl TokenKind {
             TokenKind::True
             | TokenKind::False
             | TokenKind::Identifier
-            | TokenKind::Integer
-            | TokenKind::Float => true,
+            | TokenKind::IntegerNumber
+            | TokenKind::FloatNumber
+            | TokenKind::HexidecmialNumber
+            | TokenKind::BinaryNumber
+            | TokenKind::OctalNumber => true,
             _ => false,
         }
     }

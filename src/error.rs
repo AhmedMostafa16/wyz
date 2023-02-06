@@ -41,7 +41,7 @@ impl Error {
             Report::build(self.severity, path, self.span.start)
                 .with_message(&message)
                 .with_label(
-                    Label::new((path, self.span.start..self.span.end))
+                    Label::new((path, self.span.start + 1..self.span.end + 1))
                         .with_message(&message)
                         .with_color(color),
                 )
