@@ -1,7 +1,7 @@
-use std::ops::Range;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
+    pub column: usize,
+    pub line: usize,
     pub start: usize,
     pub end: usize,
     pub id: usize,
@@ -13,16 +13,8 @@ impl Default for Span {
             start: 0,
             end: 0,
             id: 0,
-        }
-    }
-}
-
-impl From<Range<usize>> for Span {
-    fn from(value: Range<usize>) -> Self {
-        Span {
-            start: value.start,
-            end: value.end,
-            id: 0,
+            column: 0,
+            line: 0,
         }
     }
 }

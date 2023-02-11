@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, ErrorKind},
-    tokens::{Token, TokenKind},
+    tokens::{AssignmentOperator, Literal, Operator, Symbol, Token, TokenKind},
     utils::Span,
 };
 
@@ -33,6 +33,21 @@ impl Lexer {
         }
     }
 
+    fn read_while(&mut self, predicate: fn(&char) -> bool) -> String {
+        let mut result = String::new();
+
+        while let Some(character) = self.chars.get(self.cursor) {
+            if !predicate(character) {
+                break;
+            }
+
+            result.push(*character);
+            self.read_char(1);
+        }
+
+        result
+    }
+
     fn skip_whitespace(&mut self) -> () {
         loop {
             let s = self.read_char(0);
@@ -50,6 +65,7 @@ impl Lexer {
         }
     }
 
+    #[inline(always)]
     fn get_str_from_input(&self, length: usize) -> String {
         self.input
             .get(self.cursor..self.cursor + length)
@@ -76,8 +92,10 @@ impl Lexer {
         let result = Token {
             span: Span {
                 id: 0,
-                start: self.column,
-                end: self.column + length,
+                line: self.line,
+                column: self.column,
+                start: self.cursor,
+                end: self.cursor + length,
             },
             kind,
             slice: self
@@ -104,17 +122,41 @@ impl Lexer {
 
         self.create_token(TokenKind::from_string(string), length)
     }
+    fn scan_char(&mut self) -> Result<Option<Token>, Error> {
+        let mut length = 1;
+        let mut escaped = false;
+        let character = self.read_char(length);
+        if character == '\0' {
+            return Err(Error {
+                kind: ErrorKind::ExpectedButFound("character".to_string(), "EOF".to_string()),
+                severity: ariadne::ReportKind::Error,
+                span: Span {
+                    line: self.line,
+                    column: self.column,
+                    start: self.cursor,
+                    end: self.cursor + length,
+                    id: 0,
+                },
+            });
+        }
+        length += 1;
 
-    fn scan_string(&mut self, quote: char) -> Result<Option<Token>, Error> {
+        self.create_token(TokenKind::Literal(Literal::Char(character)), length)
+    }
+
+    fn scan_string(&mut self) -> Result<Option<Token>, Error> {
         let mut length = 1;
         let mut escaped = false;
         loop {
             let chr = self.read_char(length);
             if chr == '\0' {
+                self.cursor += 1;
                 return Err(Error {
-                    kind: ErrorKind::UnexpectedToken(self.get_str_from_input(length)),
+                    kind: ErrorKind::ExpectedButFound("character".to_string(), "EOF".to_string()),
                     severity: ariadne::ReportKind::Error,
                     span: Span {
+                        line: self.line,
+                        column: self.column,
                         start: self.cursor,
                         end: self.cursor + length,
                         id: 0,
@@ -122,19 +164,24 @@ impl Lexer {
                 });
             }
             length += 1;
-            if !escaped && chr == quote {
+            if !escaped && chr == '\"' {
                 break;
             }
             escaped = !escaped && chr == '\\';
         }
         self.create_token(
-            if quote == '\'' {
-                TokenKind::Char
-            } else {
-                TokenKind::String
-            },
+            TokenKind::Literal(Literal::String(self.get_str_from_input(length))),
             length,
         )
+    }
+
+    #[inline]
+    fn calculate_digit_length(&self, mut length: usize, radix: u32) -> usize {
+        length += 1;
+        while self.read_char(length).is_digit(radix) {
+            length += 1;
+        }
+        length
     }
 
     fn scan_number(&mut self, current: char) -> Result<Option<Token>, Error> {
@@ -143,25 +190,34 @@ impl Lexer {
         if current == '0' {
             match self.read_char(length) {
                 'x' => {
-                    length += 1;
-                    while self.read_char(length).is_digit(16) {
-                        length += 1;
-                    }
-                    return self.create_token(TokenKind::HexidecmialNumber, length);
+                    length = self.calculate_digit_length(length, 16);
+                    return self.create_token(
+                        TokenKind::Literal(Literal::HexidecmialNumber(
+                            i64::from_str_radix(self.get_str_from_input(length).as_str(), 16)
+                                .unwrap(),
+                        )),
+                        length,
+                    );
                 }
                 'o' => {
-                    length += 1;
-                    while (self.read_char(length)).is_digit(8) {
-                        length += 1;
-                    }
-                    return self.create_token(TokenKind::OctalNumber, length);
+                    length = self.calculate_digit_length(length, 8);
+                    return self.create_token(
+                        TokenKind::Literal(Literal::OctalNumber(
+                            i64::from_str_radix(self.get_str_from_input(length).as_str(), 8)
+                                .unwrap(),
+                        )),
+                        length,
+                    );
                 }
                 'b' => {
-                    length += 1;
-                    while self.read_char(length).is_digit(2) {
-                        length += 1;
-                    }
-                    return self.create_token(TokenKind::BinaryNumber, length);
+                    length = self.calculate_digit_length(length, 2);
+                    return self.create_token(
+                        TokenKind::Literal(Literal::BinaryNumber(
+                            i64::from_str_radix(self.get_str_from_input(length).as_str(), 2)
+                                .unwrap(),
+                        )),
+                        length,
+                    );
                 }
                 _ => {}
             }
@@ -172,10 +228,13 @@ impl Lexer {
             match self.read_char(length) {
                 '.' if self.read_char(length + 1) != '.' => {
                     if is_float {
+                        self.cursor += 1;
                         return Err(Error {
                             kind: ErrorKind::UnexpectedToken(self.get_str_from_input(length)),
                             severity: ariadne::ReportKind::Error,
                             span: Span {
+                                line: self.line,
+                                column: self.column,
                                 start: self.cursor,
                                 end: self.cursor + length,
                                 id: 0,
@@ -193,9 +252,13 @@ impl Lexer {
 
         self.create_token(
             if is_float {
-                TokenKind::FloatNumber
+                TokenKind::Literal(Literal::Float(
+                    self.get_str_from_input(length).parse::<f64>().unwrap(),
+                ))
             } else {
-                TokenKind::IntegerNumber
+                TokenKind::Literal(Literal::Integer(
+                    self.get_str_from_input(length).parse::<i64>().unwrap(),
+                ))
             },
             length,
         )
@@ -206,13 +269,18 @@ impl Lexer {
             self.keyword_or_identifier()
         } else if (current).is_numeric() {
             self.scan_number(current)
-        } else if current == '"' || current == '\'' {
-            self.scan_string(current)
+        } else if current == '"' {
+            self.scan_string()
+        } else if current == '\'' {
+            self.scan_char()
         } else {
+            self.cursor += 1;
             Err(Error {
                 kind: ErrorKind::UnexpectedToken(self.get_str_from_input(1).to_string()),
                 severity: ariadne::ReportKind::Error,
                 span: Span {
+                    line: self.line,
+                    column: self.column,
                     start: self.cursor - 1,
                     end: self.cursor,
                     id: 0,
@@ -226,79 +294,104 @@ impl Lexer {
 
         match self.read_char(0) {
             '\0' => Ok(None),
-            '{' => self.create_token(TokenKind::CurlyBracketOpen, 1),
-            '}' => self.create_token(TokenKind::CurlyBracketClose, 1),
-            '(' => self.create_token(TokenKind::ParenthesesOpen, 1),
-            ')' => self.create_token(TokenKind::ParenthesesClose, 1),
-            '[' => self.create_token(TokenKind::SquareBracketOpen, 1),
-            ']' => self.create_token(TokenKind::SquareBracketClose, 1),
-            ':' => self.create_token(TokenKind::Colon, 1),
-            ';' => self.create_token(TokenKind::Semicolon, 1),
-            ',' => self.create_token(TokenKind::Comma, 1),
+            '{' => self.create_token(TokenKind::Symbol(Symbol::CurlyBraceOpen), 1),
+            '}' => self.create_token(TokenKind::Symbol(Symbol::CurlyBraceClose), 1),
+            '(' => self.create_token(TokenKind::Symbol(Symbol::ParenthesesOpen), 1),
+            ')' => self.create_token(TokenKind::Symbol(Symbol::ParenthesesClose), 1),
+            '[' => self.create_token(TokenKind::Symbol(Symbol::SquareBracketOpen), 1),
+            ']' => self.create_token(TokenKind::Symbol(Symbol::SquareBracketClose), 1),
+            ':' => self.create_token(TokenKind::Symbol(Symbol::Colon), 1),
+            ';' => self.create_token(TokenKind::Symbol(Symbol::Semicolon), 1),
+            ',' => self.create_token(TokenKind::Symbol(Symbol::Comma), 1),
             '-' => {
                 if self.is_next_char('>') {
-                    self.create_token(TokenKind::Arrow, 2)
+                    self.create_token(TokenKind::Symbol(Symbol::Arrow), 2)
                 } else if self.is_next_char('=') {
-                    self.create_token(TokenKind::MinusEqual, 2)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(
+                            AssignmentOperator::SubtractiveAssign,
+                        )),
+                        2,
+                    )
                 } else {
-                    self.create_token(TokenKind::Minus, 2)
+                    self.create_token(TokenKind::Operator(Operator::Minus), 2)
                 }
             }
             '+' => {
                 if self.is_next_char('=') {
-                    self.create_token(TokenKind::PlusEqual, 2)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::AdditiveAssign)),
+                        2,
+                    )
                 } else {
-                    self.create_token(TokenKind::Plus, 1)
+                    self.create_token(TokenKind::Operator(Operator::Plus), 1)
                 }
             }
             '*' => {
                 if self.is_next_char('=') {
-                    self.create_token(TokenKind::AsteriskEqual, 2)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(
+                            AssignmentOperator::MultiplicativeAssign,
+                        )),
+                        2,
+                    )
                 } else {
-                    self.create_token(TokenKind::Asterisk, 1)
+                    self.create_token(TokenKind::Operator(Operator::Asterisk), 1)
                 }
             }
             '/' => {
                 if self.is_next_char('=') {
-                    self.create_token(TokenKind::SlashEqual, 2)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::DivisionAssign)),
+                        2,
+                    )
                 } else {
-                    self.create_token(TokenKind::Slash, 1)
+                    self.create_token(TokenKind::Operator(Operator::Slash), 1)
                 }
             }
             '=' => {
                 if self.is_next_char('=') {
-                    self.create_token(TokenKind::DoubleEqual, 2)
+                    self.create_token(TokenKind::Operator(Operator::Equals), 2)
                 } else {
-                    self.create_token(TokenKind::Equal, 1)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::Assign)),
+                        1,
+                    )
                 }
             }
             '!' => {
                 if self.is_next_char('=') {
-                    self.create_token(TokenKind::BangEqual, 2)
+                    self.create_token(TokenKind::Operator(Operator::NotEquals), 2)
                 } else {
-                    self.create_token(TokenKind::Bang, 1)
+                    self.create_token(TokenKind::Operator(Operator::Not), 1)
                 }
             }
             '>' => {
                 if self.are_next_chars(">=".chars().collect()) {
-                    self.create_token(TokenKind::RightShiftEqual, 2)
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::RightShiftAssign)),
+                        2,
+                    )
                 } else if self.is_next_char('>') {
-                    self.create_token(TokenKind::RightShift, 2)
+                    self.create_token(TokenKind::Operator(Operator::BitwiseRightShift), 2)
                 } else if self.is_next_char('=') {
-                    self.create_token(TokenKind::GreaterEqual, 2)
+                    self.create_token(TokenKind::Operator(Operator::GreaterOrEqual), 2)
                 } else {
-                    self.create_token(TokenKind::Greater, 1)
+                    self.create_token(TokenKind::Operator(Operator::GreaterThan), 1)
                 }
             }
             '<' => {
-                if self.is_next_char('<') {
-                    self.create_token(TokenKind::LeftShift, 2)
+                if self.are_next_chars("<=".chars().collect()) {
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::LeftShiftAssign)),
+                        2,
+                    )
                 } else if self.is_next_char('=') {
-                    self.create_token(TokenKind::LessEqual, 2)
-                } else if self.are_next_chars("<=".chars().collect()) {
-                    self.create_token(TokenKind::LeftShiftEqual, 2)
+                    self.create_token(TokenKind::Operator(Operator::LessOrEqual), 2)
+                } else if self.is_next_char('<') {
+                    self.create_token(TokenKind::Operator(Operator::BitwiseLeftShift), 2)
                 } else {
-                    self.create_token(TokenKind::Less, 1)
+                    self.create_token(TokenKind::Operator(Operator::LessThan), 1)
                 }
             }
             rest => self.rest(rest),
