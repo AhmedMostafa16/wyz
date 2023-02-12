@@ -202,21 +202,23 @@ impl Parser {
                 continue;
             }
 
-            let param_type = if let Some(TokenKind::Identifier(param_type)) = self.current() {
-                param_type.clone()
-            } else {
-                return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                    "type name".to_string(),
-                    format!("{:?}", self.current().unwrap().to_string()),
-                )));
-            };
-
-            self.advance();
             let param_name = if let Some(TokenKind::Identifier(param_name)) = self.current() {
                 param_name.clone()
             } else {
                 return Err(self.generate_error(ErrorKind::ExpectedButFound(
                     "identifier".to_string(),
+                    format!("{:?}", self.current().unwrap().to_string()),
+                )));
+            };
+            self.advance();
+
+            self.eat(TokenKind::Symbol(Symbol::Colon))?;
+
+            let param_type = if let Some(TokenKind::Identifier(param_type)) = self.current() {
+                param_type.clone()
+            } else {
+                return Err(self.generate_error(ErrorKind::ExpectedButFound(
+                    "type name".to_string(),
                     format!("{:?}", self.current().unwrap().to_string()),
                 )));
             };
