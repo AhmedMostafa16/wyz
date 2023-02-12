@@ -169,18 +169,11 @@ impl Parser {
 
     pub fn parse_module_declaration(&mut self) -> Result<Module, Error> {
         self.eat(TokenKind::Keyword(Keyword::Module))?;
-        let name = if let Some(TokenKind::Identifier(name)) = self.advance() {
-            name.clone()
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
-
+        let name = self.parse_identifier()?;
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
         let module = self.parse_module(name)?;
         self.advance();
+
         Ok(module)
     }
 
@@ -200,42 +193,22 @@ impl Parser {
                 continue;
             }
 
-            let param_name =
-                if let Some(TokenKind::Identifier(param_name)) = self.get_current_token() {
-                    param_name.clone()
-                } else {
-                    return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                        "identifier".to_string(),
-                        format!("{:?}", self.get_current_token().unwrap().to_string()),
-                    )));
-                };
-            self.advance();
-
+            let param_name = self.parse_identifier()?;
             self.eat(TokenKind::Symbol(Symbol::Colon))?;
+            let param_type = self.parse_type_name()?;
 
-            let param_type =
-                if let Some(TokenKind::Identifier(param_type)) = self.get_current_token() {
-                    param_type.clone()
-                } else {
-                    return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                        "type name".to_string(),
-                        format!("{:?}", self.get_current_token().unwrap().to_string()),
-                    )));
-                };
-
-            self.advance();
-
+            // Handle the end of a parameter
             if let Some(TokenKind::Symbol(Symbol::Comma)) = self.get_current_token() {
                 self.advance();
             } else if let Some(TokenKind::Symbol(Symbol::ParenthesesClose)) =
                 self.get_current_token()
-            {
-            } else {
+            {} else {
                 return Err(self.generate_error(ErrorKind::ExpectedButFound(
                     "comma or close parentheses".to_string(),
                     format!("{:?}", self.get_current_token().unwrap().to_string()),
                 )));
             }
+
             params.push(FunctionParameter {
                 name: param_name,
                 type_name: param_type,
@@ -247,32 +220,15 @@ impl Parser {
 
     pub fn parse_function_decl(&mut self) -> Result<crate::ast::FunctionDeclaration, Error> {
         let span = self.get_current_span()?;
-        self.advance(); // Skip function keyword
-        let name = if let Some(TokenKind::Identifier(name)) = self.get_current_token() {
-            name.clone()
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
 
-        self.advance();
+        self.eat(TokenKind::Keyword(Keyword::Function))?;
+        let name = self.parse_identifier()?;
         self.eat(TokenKind::Symbol(Symbol::ParenthesesOpen))?;
-
         let (params, variadic): (Vec<FunctionParameter>, bool) = self.parse_function_params()?;
 
         let return_type = if let Some(TokenKind::Symbol(Symbol::Arrow)) = self.get_current_token() {
-            self.advance();
-            if let Some(TokenKind::Identifier(return_type)) = self.get_current_token() {
-                self.advance();
-                Some(return_type.clone())
-            } else {
-                return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                    "type name".to_string(),
-                    format!("{:?}", self.get_current_token().unwrap().to_string()),
-                )));
-            }
+            self.eat(TokenKind::Symbol(Symbol::Arrow))?;
+            Some(self.parse_type_name()?)
         } else {
             None
         };
@@ -292,14 +248,8 @@ impl Parser {
     pub fn parse_class_declaration(&mut self) -> Result<ClassDeclaration, Error> {
         let class_span = self.get_current_span()?;
         self.eat(TokenKind::Keyword(Keyword::Class))?;
-        let name = if let Some(TokenKind::Identifier(name)) = self.advance() {
-            name.clone()
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
+        let name = self.parse_identifier()?;
+
         let mut fields = Vec::new();
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
         loop {
@@ -310,21 +260,9 @@ impl Parser {
 
             let span = self.get_current_span()?;
 
-            let Some(TokenKind::Identifier(field_name)) = self.advance() else {
-                return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                    "identifier".to_string(),
-                    format!("{:?}", self.get_current_token().unwrap().to_string()),
-                )));
-            };
-
+            let field_name = self.parse_identifier()?;
             self.eat(TokenKind::Symbol(Symbol::Colon))?;
-
-            let Some(TokenKind::Identifier(type_name)) = self.advance() else {
-                return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                    "identifier".to_string(),
-                    format!("{:?}", self.get_current_token().unwrap().to_string()),
-                )));
-            };
+            let type_name = self.parse_identifier()?;
 
             fields.push(ClassField {
                 field_name,
@@ -433,16 +371,9 @@ impl Parser {
 
     pub fn parse_class_initializer(&mut self) -> Result<Expression, Error> {
         let init_span = self.get_current_span()?;
-        let name = if let Some(TokenKind::Identifier(name)) = self.advance() {
-            name
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
-
+        let name = self.parse_identifier()?;
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
+
         let mut fields = Vec::new();
         loop {
             if let Some(TokenKind::Symbol(Symbol::CurlyBraceClose)) = self.get_current_token() {
@@ -451,13 +382,7 @@ impl Parser {
             }
 
             let field_span = self.get_current_span()?;
-
-            let Some(TokenKind::Identifier(field_name)) = self.advance() else {
-                return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                    "identifier".to_string(),
-                    format!("{:?}", self.get_current_token().unwrap().to_string()),
-                )));
-            };
+            let field_name = self.parse_identifier()?;
 
             if let Some(TokenKind::Symbol(Symbol::Colon)) = self.get_current_token() {
                 self.advance();
@@ -526,24 +451,8 @@ impl Parser {
     pub fn parse_variable_declaration(&mut self) -> Result<Statement, Error> {
         let span = self.get_current_span()?;
         self.advance();
-        let type_name = if let Some(TokenKind::Identifier(type_name)) = self.get_current_token() {
-            type_name.clone()
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "type name".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
-        self.advance();
-        let name = if let Some(TokenKind::Identifier(name)) = self.get_current_token() {
-            name.clone()
-        } else {
-            return Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            )));
-        };
-        self.advance();
+        let type_name = self.parse_type_name()?;
+        let name = self.parse_identifier()?;
 
         let initializer =
             if let Some(TokenKind::Operator(Operator::Assign(AssignmentOperator::Assign))) =
@@ -740,7 +649,7 @@ impl Parser {
                     self.advance();
                 }
                 None => {
-                    return Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string())))
+                    return Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string())));
                 }
             };
         }
@@ -755,7 +664,7 @@ impl Parser {
         {
             if let Some(TokenKind::Symbol(Symbol::Dot)) = self.get_current_token() {
                 self.advance();
-                let prop = self.identifier()?;
+                let prop = Expression::Identifier(self.parse_identifier()?);
                 object = Expression::MemberAccess(MemberAccess {
                     object: Box::from(object),
                     member: Box::from(prop),
@@ -777,27 +686,13 @@ impl Parser {
         Ok(object)
     }
 
-    pub fn identifier(&mut self) -> Result<Expression, Error> {
-        match self.get_current_token() {
-            Some(TokenKind::Identifier(id)) => {
-                self.advance();
-                Ok(Expression::Identifier(id))
-            }
-            Some(_) => Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            ))),
-            None => Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string()))),
-        }
-    }
-
     pub fn parse_primary_expr(&mut self) -> Result<Expression, Error> {
         match self.get_current_token() {
             Some(TokenKind::Literal(literal)) => Ok(self.parse_literal()?),
             Some(TokenKind::Symbol(Symbol::ParenthesesOpen)) => {
                 Ok(self.parse_parentheses_expression()?)
             }
-            Some(TokenKind::Identifier(_)) => Ok(self.identifier()?),
+            Some(TokenKind::Identifier(_)) => Ok(Expression::Identifier(self.parse_identifier()?)),
             Some(_) => Ok(self.parse_left_hand_side_expression()?),
             None => Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string()))),
         }
@@ -805,7 +700,9 @@ impl Parser {
 
     pub fn parse_literal(&mut self) -> Result<Expression, Error> {
         let Some(TokenKind::Literal(literal)) = self.get_current_token() else {
-            return  Err(self.generate_error(ErrorKind::ExpectedButFound("literal".to_string(), format!("{:?}", self.get_current_token().unwrap().to_string()))));
+            return Err(self.generate_error(ErrorKind::ExpectedButFound("literal".to_string(),
+                                                                       format!("{:?}",
+                                                                       self.get_current_token().unwrap().to_string()))));
         };
         self.advance();
         Ok(Expression::Literal(literal))
@@ -818,6 +715,28 @@ impl Parser {
         self.expect(&TokenKind::Symbol(Symbol::ParenthesesClose))?;
         self.advance();
         Ok(expr)
+    }
+
+    fn parse_identifier(&mut self) -> Result<String, Error> {
+        if let Some(TokenKind::Identifier(name)) = self.advance() {
+            Ok(name.clone())
+        } else {
+            Err(self.generate_error(ErrorKind::ExpectedButFound(
+                "identifier".to_string(),
+                format!("{:?}", self.get_current_token().unwrap().to_string()),
+            )))
+        }
+    }
+
+    fn parse_type_name(&mut self) -> Result<String, Error> {
+        if let Some(TokenKind::Identifier(type_name)) = self.advance() {
+            Ok(type_name.clone())
+        } else {
+            Err(self.generate_error(ErrorKind::ExpectedButFound(
+                "type name".to_string(),
+                format!("{:?}", self.get_current_token().unwrap().to_string()),
+            )))
+        }
     }
 }
 
