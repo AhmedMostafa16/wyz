@@ -202,8 +202,7 @@ impl Parser {
                 self.advance();
             } else if let Some(TokenKind::Symbol(Symbol::ParenthesesClose)) =
                 self.get_current_token()
-            {
-            } else {
+            {} else {
                 return Err(self.generate_error(ErrorKind::ExpectedButFound(
                     "comma or close parentheses".to_string(),
                     format!("{:?}", self.get_current_token().unwrap().to_string()),
@@ -650,7 +649,7 @@ impl Parser {
                     self.advance();
                 }
                 None => {
-                    return Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string())))
+                    return Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string())));
                 }
             };
         }
@@ -665,7 +664,7 @@ impl Parser {
         {
             if let Some(TokenKind::Symbol(Symbol::Dot)) = self.get_current_token() {
                 self.advance();
-                let prop = self.identifier()?;
+                let prop = Expression::Identifier(self.parse_identifier()?);
                 object = Expression::MemberAccess(MemberAccess {
                     object: Box::from(object),
                     member: Box::from(prop),
@@ -687,27 +686,13 @@ impl Parser {
         Ok(object)
     }
 
-    pub fn identifier(&mut self) -> Result<Expression, Error> {
-        match self.get_current_token() {
-            Some(TokenKind::Identifier(id)) => {
-                self.advance();
-                Ok(Expression::Identifier(id))
-            }
-            Some(_) => Err(self.generate_error(ErrorKind::ExpectedButFound(
-                "identifier".to_string(),
-                format!("{:?}", self.get_current_token().unwrap().to_string()),
-            ))),
-            None => Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string()))),
-        }
-    }
-
     pub fn parse_primary_expr(&mut self) -> Result<Expression, Error> {
         match self.get_current_token() {
             Some(TokenKind::Literal(literal)) => Ok(self.parse_literal()?),
             Some(TokenKind::Symbol(Symbol::ParenthesesOpen)) => {
                 Ok(self.parse_parentheses_expression()?)
             }
-            Some(TokenKind::Identifier(_)) => Ok(self.identifier()?),
+            Some(TokenKind::Identifier(_)) => Ok(Expression::Identifier(self.parse_identifier()?)),
             Some(_) => Ok(self.parse_left_hand_side_expression()?),
             None => Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string()))),
         }
@@ -715,7 +700,9 @@ impl Parser {
 
     pub fn parse_literal(&mut self) -> Result<Expression, Error> {
         let Some(TokenKind::Literal(literal)) = self.get_current_token() else {
-            return  Err(self.generate_error(ErrorKind::ExpectedButFound("literal".to_string(), format!("{:?}", self.get_current_token().unwrap().to_string()))));
+            return Err(self.generate_error(ErrorKind::ExpectedButFound("literal".to_string(),
+                                                                       format!("{:?}",
+                                                                       self.get_current_token().unwrap().to_string()))));
         };
         self.advance();
         Ok(Expression::Literal(literal))
