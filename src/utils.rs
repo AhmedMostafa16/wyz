@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
-    pub column: usize,
     pub line: usize,
+    pub column: usize,
     pub start: usize,
     pub end: usize,
     pub id: usize,

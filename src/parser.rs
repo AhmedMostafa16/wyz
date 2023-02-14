@@ -118,14 +118,6 @@ impl Parser {
         Ok(span)
     }
 
-    fn is_eof(&self) -> bool {
-        if let Some(token) = self.tokens.get(self.cursor) {
-            token.kind == TokenKind::EndOfFile
-        } else {
-            true
-        }
-    }
-
     pub fn parse_module(&mut self, mod_name: String) -> Result<Module, Error> {
         let mut body = Vec::new();
         let mut submodules = Vec::new();
@@ -202,7 +194,9 @@ impl Parser {
                 self.advance();
             } else if let Some(TokenKind::Symbol(Symbol::ParenthesesClose)) =
                 self.get_current_token()
-            {} else {
+            {
+                //
+            } else {
                 return Err(self.generate_error(ErrorKind::ExpectedButFound(
                     "comma or close parentheses".to_string(),
                     format!("{:?}", self.get_current_token().unwrap().to_string()),
@@ -740,8 +734,8 @@ impl Parser {
     }
 }
 
-pub fn parse(tokens: Vec<Token>, mod_name: String) -> Result<Module, Error> {
+pub fn parse(tokens: Vec<Token>) -> Result<Module, Error> {
     let mut parser = Parser::new(tokens);
-    let module = parser.parse_module(mod_name)?;
+    let module = parser.parse_module_declaration()?;
     Ok(module)
 }

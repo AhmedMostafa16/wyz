@@ -124,7 +124,6 @@ impl Lexer {
     }
     fn scan_char(&mut self) -> Result<Option<Token>, Error> {
         let mut length = 1;
-        let mut escaped = false;
         let character = self.read_char(length);
         if character == '\0' {
             return Err(Error {
@@ -264,31 +263,6 @@ impl Lexer {
         )
     }
 
-    fn rest(&mut self, current: char) -> Result<Option<Token>, Error> {
-        if (current).is_alphabetic() || current == '_' {
-            self.keyword_or_identifier()
-        } else if (current).is_numeric() {
-            self.scan_number(current)
-        } else if current == '"' {
-            self.scan_string()
-        } else if current == '\'' {
-            self.scan_char()
-        } else {
-            self.cursor += 1;
-            Err(Error {
-                kind: ErrorKind::UnexpectedToken(self.get_str_from_input(1).to_string()),
-                severity: ariadne::ReportKind::Error,
-                span: Span {
-                    line: self.line,
-                    column: self.column,
-                    start: self.cursor - 1,
-                    end: self.cursor,
-                    id: 0,
-                },
-            })
-        }
-    }
-
     fn next(&mut self) -> Result<Option<Token>, Error> {
         self.skip_whitespace();
 
@@ -300,7 +274,13 @@ impl Lexer {
             ')' => self.create_token(TokenKind::Symbol(Symbol::ParenthesesClose), 1),
             '[' => self.create_token(TokenKind::Symbol(Symbol::SquareBracketOpen), 1),
             ']' => self.create_token(TokenKind::Symbol(Symbol::SquareBracketClose), 1),
-            ':' => self.create_token(TokenKind::Symbol(Symbol::Colon), 1),
+            ':' => {
+                if self.is_next_char(':') {
+                    self.create_token(TokenKind::Symbol(Symbol::DoubleColon), 2)
+                } else {
+                    self.create_token(TokenKind::Symbol(Symbol::Colon), 1)
+                }
+            }
             ';' => self.create_token(TokenKind::Symbol(Symbol::Semicolon), 1),
             ',' => self.create_token(TokenKind::Symbol(Symbol::Comma), 1),
             '-' => {
@@ -335,6 +315,8 @@ impl Lexer {
                         )),
                         2,
                     )
+                } else if self.is_next_char('*') {
+                    self.create_token(TokenKind::Operator(Operator::Power), 2)
                 } else {
                     self.create_token(TokenKind::Operator(Operator::Asterisk), 1)
                 }
@@ -347,6 +329,16 @@ impl Lexer {
                     )
                 } else {
                     self.create_token(TokenKind::Operator(Operator::Slash), 1)
+                }
+            }
+            '%' => {
+                if self.is_next_char('=') {
+                    self.create_token(
+                        TokenKind::Operator(Operator::Assign(AssignmentOperator::ModuloAssign)),
+                        2,
+                    )
+                } else {
+                    self.create_token(TokenKind::Operator(Operator::Modulo), 1)
                 }
             }
             '=' => {
@@ -370,7 +362,7 @@ impl Lexer {
                 if self.are_next_chars(">=".chars().collect()) {
                     self.create_token(
                         TokenKind::Operator(Operator::Assign(AssignmentOperator::RightShiftAssign)),
-                        2,
+                        3,
                     )
                 } else if self.is_next_char('>') {
                     self.create_token(TokenKind::Operator(Operator::BitwiseRightShift), 2)
@@ -384,7 +376,7 @@ impl Lexer {
                 if self.are_next_chars("<=".chars().collect()) {
                     self.create_token(
                         TokenKind::Operator(Operator::Assign(AssignmentOperator::LeftShiftAssign)),
-                        2,
+                        3,
                     )
                 } else if self.is_next_char('=') {
                     self.create_token(TokenKind::Operator(Operator::LessOrEqual), 2)
@@ -394,7 +386,55 @@ impl Lexer {
                     self.create_token(TokenKind::Operator(Operator::LessThan), 1)
                 }
             }
-            rest => self.rest(rest),
+            '.' => {
+                if self.are_next_chars("..".chars().collect()) {
+                    self.create_token(TokenKind::Symbol(Symbol::DotDotDot), 3)
+                } else if self.is_next_char('.') {
+                    self.create_token(TokenKind::Symbol(Symbol::DotDot), 2)
+                } else {
+                    self.create_token(TokenKind::Symbol(Symbol::Dot), 1)
+                }
+            }
+            '&' => {
+                if self.is_next_char('&') {
+                    self.create_token(TokenKind::Operator(Operator::And), 2)
+                } else {
+                    self.create_token(TokenKind::Operator(Operator::BitwiseAnd), 1)
+                }
+            }
+            '|' => {
+                if self.is_next_char('|') {
+                    self.create_token(TokenKind::Operator(Operator::Or), 2)
+                } else {
+                    self.create_token(TokenKind::Operator(Operator::BitwiseOr), 1)
+                }
+            }
+            '^' => self.create_token(TokenKind::Operator(Operator::BitwiseXor), 1),
+            '~' => self.create_token(TokenKind::Operator(Operator::BitwiseNot), 1),
+            current => {
+                if (current).is_alphabetic() || current == '_' {
+                    self.keyword_or_identifier()
+                } else if (current).is_numeric() {
+                    self.scan_number(current)
+                } else if current == '"' {
+                    self.scan_string()
+                } else if current == '\'' {
+                    self.scan_char()
+                } else {
+                    self.cursor += 1;
+                    Err(Error {
+                        kind: ErrorKind::UnexpectedToken(self.get_str_from_input(1).to_string()),
+                        severity: ariadne::ReportKind::Error,
+                        span: Span {
+                            line: self.line,
+                            column: self.column,
+                            start: self.cursor - 1,
+                            end: self.cursor,
+                            id: 0,
+                        },
+                    })
+                }
+            }
         }
     }
 

@@ -17,7 +17,6 @@ pub enum TokenKind {
     Operator(Operator),
     Keyword(Keyword),
     Symbol(Symbol),
-    EndOfFile,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -32,6 +31,7 @@ pub enum Literal {
     BinaryNumber(i64),
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Keyword {
     Module,
@@ -50,8 +50,6 @@ pub enum Keyword {
     Foreach,
     Loop,
     Return,
-    True,
-    False,
     Unsafe,
     New,
     Static,
@@ -140,7 +138,7 @@ impl Display for Operator {
             Operator::Asterisk => write!(f, "*"),
             Operator::Slash => write!(f, "/"),
             Operator::Modulo => write!(f, "%"),
-            Operator::Power => write!(f, "^"),
+            Operator::Power => write!(f, "**"),
             Operator::Equals => write!(f, "=="),
             Operator::NotEquals => write!(f, "!="),
             Operator::LessThan => write!(f, "<"),
@@ -231,49 +229,8 @@ impl TokenKind {
             "import" => TokenKind::Keyword(Keyword::Import),
             "extend" => TokenKind::Keyword(Keyword::Extend),
             "extern" => TokenKind::Keyword(Keyword::Extern),
-            "true" => TokenKind::Keyword(Keyword::True),
-            "false" => TokenKind::Keyword(Keyword::False),
-            "(" => TokenKind::Symbol(Symbol::ParenthesesOpen),
-            ")" => TokenKind::Symbol(Symbol::ParenthesesClose),
-            "{" => TokenKind::Symbol(Symbol::CurlyBraceOpen),
-            "}" => TokenKind::Symbol(Symbol::CurlyBraceClose),
-            "[" => TokenKind::Symbol(Symbol::SquareBracketOpen),
-            "]" => TokenKind::Symbol(Symbol::SquareBracketClose),
-            ";" => TokenKind::Symbol(Symbol::Semicolon),
-            "::" => TokenKind::Symbol(Symbol::DoubleColon),
-            ":" => TokenKind::Symbol(Symbol::Colon),
-            "," => TokenKind::Symbol(Symbol::Comma),
-            "." => TokenKind::Symbol(Symbol::Dot),
-            ".." => TokenKind::Symbol(Symbol::DotDot),
-            "..." => TokenKind::Symbol(Symbol::DotDotDot),
-            "->" => TokenKind::Symbol(Symbol::Arrow),
-            "+" => TokenKind::Operator(Operator::Plus),
-            "-" => TokenKind::Operator(Operator::Minus),
-            "*" => TokenKind::Operator(Operator::Asterisk),
-            "/" => TokenKind::Operator(Operator::Slash),
-            "%" => TokenKind::Operator(Operator::Modulo),
-            "**" => TokenKind::Operator(Operator::Power),
-            "==" => TokenKind::Operator(Operator::Equals),
-            "!=" => TokenKind::Operator(Operator::NotEquals),
-            "<" => TokenKind::Operator(Operator::LessThan),
-            "<=" => TokenKind::Operator(Operator::LessOrEqual),
-            ">" => TokenKind::Operator(Operator::GreaterThan),
-            ">=" => TokenKind::Operator(Operator::GreaterOrEqual),
-            "&&" => TokenKind::Operator(Operator::And),
-            "||" => TokenKind::Operator(Operator::Or),
-            "!" => TokenKind::Operator(Operator::Not),
-            "&" => TokenKind::Operator(Operator::BitwiseAnd),
-            "|" => TokenKind::Operator(Operator::BitwiseOr),
-            "^" => TokenKind::Operator(Operator::BitwiseXor),
-            "~" => TokenKind::Operator(Operator::BitwiseNot),
-            "<<" => TokenKind::Operator(Operator::BitwiseLeftShift),
-            ">>" => TokenKind::Operator(Operator::BitwiseRightShift),
-            "=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::Assign)),
-            "+=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::AdditiveAssign)),
-            "-=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::SubtractiveAssign)),
-            "*=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::MultiplicativeAssign)),
-            "/=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::DivisionAssign)),
-            "%=" => TokenKind::Operator(Operator::Assign(AssignmentOperator::ModuloAssign)),
+            "true" => TokenKind::Literal(Literal::Bool(true)),
+            "false" => TokenKind::Literal(Literal::Bool(false)),
             "as" => TokenKind::Operator(Operator::As),
             _ => TokenKind::Identifier(string),
         }
@@ -305,8 +262,6 @@ impl ToString for TokenKind {
                 TokenKind::Keyword(Keyword::Import) => "import",
                 TokenKind::Keyword(Keyword::Var) => "var",
                 TokenKind::Keyword(Keyword::Extend) => "extend",
-                TokenKind::Keyword(Keyword::True) => "true",
-                TokenKind::Keyword(Keyword::False) => "false",
                 TokenKind::Keyword(Keyword::Unsafe) => "unsafe",
                 TokenKind::Keyword(Keyword::Break) => "break",
                 TokenKind::Keyword(Keyword::Continue) => "continue",
@@ -382,7 +337,6 @@ impl ToString for TokenKind {
                 TokenKind::Literal(Literal::String(value)) => {
                     return format!("string {:?}", value);
                 }
-                TokenKind::EndOfFile => "\\0",
             }
         )
     }
