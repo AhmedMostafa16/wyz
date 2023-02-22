@@ -9,6 +9,8 @@ pub enum ErrorKind {
     ExpectedButFoundWithExpectGuard(String, String),
     ExpectedSpan,
     InvalidAssignmentTarget(String),
+    SubmoduleDoesNotExist(String),
+    GlobalIsNotAtFirst,
 }
 
 impl ErrorKind {
@@ -26,6 +28,15 @@ impl ErrorKind {
             ErrorKind::ExpectedSpan => format!("Expected span"),
             ErrorKind::InvalidAssignmentTarget(target) => {
                 format!("Invalid assignment target: {}", target.fg(color))
+            }
+            ErrorKind::SubmoduleDoesNotExist(submodule) => {
+                format!("Submodule does not exist: {}", submodule.fg(color))
+            }
+            ErrorKind::GlobalIsNotAtFirst => {
+                format!(
+                    "{} can only be used as the first identifier in a path",
+                    "global".fg(Color::Blue)
+                )
             }
         }
     }

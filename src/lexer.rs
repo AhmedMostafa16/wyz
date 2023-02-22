@@ -17,7 +17,7 @@ impl Lexer {
         let chars = input.chars().collect();
         Self {
             cursor: 0,
-            line: 0,
+            line: 1,
             column: 0,
             chars,
             input,

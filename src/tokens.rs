@@ -19,6 +19,7 @@ pub enum TokenKind {
     Symbol(Symbol),
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone)]
 pub enum Literal {
     String(String),
@@ -53,12 +54,15 @@ pub enum Keyword {
     Unsafe,
     New,
     Static,
+    Self_,
     Import,
     Extend,
     Continue,
     Break,
+    Public,
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Operator {
     Assign(AssignmentOperator),
@@ -159,6 +163,7 @@ impl Display for Operator {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OperatorType {
     Assignment,
@@ -173,6 +178,7 @@ pub enum OperatorType {
     Cast,
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum AssignmentOperator {
     AdditiveAssign,
@@ -185,6 +191,7 @@ pub enum AssignmentOperator {
     Assign,
 }
 
+#[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Symbol {
     ParenthesesOpen,
@@ -226,9 +233,11 @@ impl TokenKind {
             "mutable" => TokenKind::Keyword(Keyword::Mutable),
             "new" => TokenKind::Keyword(Keyword::New),
             "static" => TokenKind::Keyword(Keyword::Static),
+            "self" => TokenKind::Keyword(Keyword::Self_),
             "import" => TokenKind::Keyword(Keyword::Import),
             "extend" => TokenKind::Keyword(Keyword::Extend),
             "extern" => TokenKind::Keyword(Keyword::Extern),
+            "public" => TokenKind::Keyword(Keyword::Public),
             "true" => TokenKind::Literal(Literal::Bool(true)),
             "false" => TokenKind::Literal(Literal::Bool(false)),
             "as" => TokenKind::Operator(Operator::As),
@@ -259,12 +268,14 @@ impl ToString for TokenKind {
                 TokenKind::Keyword(Keyword::New) => "new",
                 TokenKind::Keyword(Keyword::Enum) => "enum",
                 TokenKind::Keyword(Keyword::Static) => "static",
+                TokenKind::Keyword(Keyword::Self_) => "self",
                 TokenKind::Keyword(Keyword::Import) => "import",
                 TokenKind::Keyword(Keyword::Var) => "var",
                 TokenKind::Keyword(Keyword::Extend) => "extend",
                 TokenKind::Keyword(Keyword::Unsafe) => "unsafe",
                 TokenKind::Keyword(Keyword::Break) => "break",
                 TokenKind::Keyword(Keyword::Continue) => "continue",
+                TokenKind::Keyword(Keyword::Public) => "public",
                 TokenKind::Symbol(Symbol::Arrow) => "->",
                 TokenKind::Symbol(Symbol::Comma) => ",",
                 TokenKind::Symbol(Symbol::Colon) => ":",

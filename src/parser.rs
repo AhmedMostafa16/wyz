@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     ast::*,
     error::{Error, ErrorKind},
@@ -118,24 +120,79 @@ impl Parser {
         Ok(span)
     }
 
-    pub fn parse_module(&mut self, mod_name: String) -> Result<Module, Error> {
-        let mut body = Vec::new();
-        let mut submodules = Vec::new();
+    pub fn parse_module(
+        &mut self,
+        module_name: String,
+        path: Option<Vec<String>>,
+        parent: Option<Rc<RefCell<Module>>>,
+    ) -> Result<Rc<RefCell<Module>>, Error> {
         let span = self.get_current_span()?;
+        let module = Rc::new(RefCell::new(Module {
+            function_declarations: Vec::new(),
+            function_definitions: Vec::new(),
+            classes: Vec::new(),
+            imports: Vec::new(),
+            name: module_name.clone(),
+            span,
+            submodules: Vec::new(),
+            global_variables: Vec::new(),
+            parent: parent.clone(),
+            path: {
+                let mut path = Vec::from(path.unwrap_or([module_name].to_vec()));
+                let mut parent = parent;
+                // If there is a parent module, add its name to the vector, `path`, and check if it has a parent itself
+                while let Some(parent_mod) = parent {
+                    path.push(parent_mod.borrow().name.clone());
+                    parent = parent_mod.borrow().parent.clone();
+                }
+                path.reverse();
+                path
+            },
+        }));
+
+        let mut is_public = false;
 
         loop {
+            let module_ref = module.clone();
             match self.get_current_token() {
+                Some(TokenKind::Keyword(Keyword::Public)) => {
+                    is_public = true;
+                    self.advance();
+                    continue;
+                }
+                Some(TokenKind::Keyword(Keyword::Import)) => {
+                    let import = self.parse_import_declaration(module.clone())?;
+                    module_ref.borrow_mut().imports.push(import);
+                }
                 Some(TokenKind::Keyword(Keyword::Function)) => {
-                    let function = self.parse_function_decl()?;
-                    body.push(Declaration::Function(function));
+                    let function_declaration = self.parse_function_declaration(false, is_public)?;
+                    is_public = false;
+
+                    let func = self.parse_function_definition(function_declaration)?;
+                    module_ref.borrow_mut().function_definitions.push(func);
+                }
+                Some(TokenKind::Keyword(Keyword::Extern)) => {
+                    let function_declaration = self.parse_function_declaration(true, false)?;
+                    self.eat(TokenKind::Symbol(Symbol::Semicolon))?;
+
+                    module_ref
+                        .borrow_mut()
+                        .function_declarations
+                        .push(function_declaration);
                 }
                 Some(TokenKind::Keyword(Keyword::Class)) => {
-                    let class = self.parse_class_declaration()?;
-                    body.push(Declaration::Class(class));
+                    let class = self.parse_class_declaration(is_public)?;
+                    is_public = false;
+
+                    module_ref.borrow_mut().classes.push(class);
                 }
                 Some(TokenKind::Keyword(Keyword::Module)) => {
-                    let module = self.parse_module_declaration()?;
-                    submodules.push(module);
+                    let module = self.parse_module_declaration(module.clone())?;
+                    module_ref.borrow_mut().submodules.push(module);
+                }
+                Some(TokenKind::Keyword(Keyword::Var)) => {
+                    let variable = self.parse_variable_declaration()?;
+                    module_ref.borrow_mut().global_variables.push(variable);
                 }
                 Some(TokenKind::Symbol(Symbol::CurlyBraceClose)) => {
                     break;
@@ -150,28 +207,31 @@ impl Parser {
             }
         }
 
-        Ok(Module {
-            body,
-            submodules,
-            requirements: Vec::new(),
-            name: mod_name,
-            span,
-        })
+        Ok(module)
     }
 
-    pub fn parse_module_declaration(&mut self) -> Result<Module, Error> {
+    pub fn parse_module_declaration(
+        &mut self,
+        parent: Rc<RefCell<Module>>,
+    ) -> Result<Rc<RefCell<Module>>, Error> {
         self.eat(TokenKind::Keyword(Keyword::Module))?;
-        let name = self.parse_identifier()?;
+        let mut path = self.parse_path()?;
+        let name = path.last().unwrap().to_string();
+        path.reverse();
+
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
-        let module = self.parse_module(name)?;
+
+        let module = self.parse_module(name, Some(path), Some(parent))?;
         self.advance();
 
         Ok(module)
     }
 
     pub fn parse_function_params(&mut self) -> Result<(Vec<FunctionParameter>, bool), Error> {
-        let mut params = Vec::new();
+        let mut params = Vec::<FunctionParameter>::new();
         let mut variadic = false;
+        let mut param_index: u32 = 0;
+
         loop {
             if let Some(TokenKind::Symbol(Symbol::ParenthesesClose)) = self.get_current_token() {
                 self.advance();
@@ -206,14 +266,24 @@ impl Parser {
             params.push(FunctionParameter {
                 name: param_name,
                 type_name: param_type,
-                span: span,
+                index: param_index,
+                span,
             });
+            param_index += 1;
         }
         Ok((params, variadic))
     }
 
-    pub fn parse_function_decl(&mut self) -> Result<crate::ast::FunctionDeclaration, Error> {
+    pub fn parse_function_declaration(
+        &mut self,
+        is_extern: bool,
+        is_public: bool,
+    ) -> Result<FunctionDeclaration, Error> {
         let span = self.get_current_span()?;
+
+        if is_extern {
+            self.eat(TokenKind::Keyword(Keyword::Extern))?;
+        }
 
         self.eat(TokenKind::Keyword(Keyword::Function))?;
         let name = self.parse_identifier()?;
@@ -227,25 +297,39 @@ impl Parser {
             None
         };
 
-        let body = self.parse_block()?;
-
         Ok(FunctionDeclaration {
             name,
             return_type,
             params,
-            body,
             variadic,
+            is_extern,
+            is_public,
             span,
         })
     }
 
-    pub fn parse_class_declaration(&mut self) -> Result<ClassDeclaration, Error> {
+    pub fn parse_function_definition(
+        &mut self,
+        function_declaration: FunctionDeclaration,
+    ) -> Result<FunctionDefinition, Error> {
+        let span = self.get_current_span()?;
+        let body = self.parse_block()?;
+
+        Ok(FunctionDefinition {
+            function_declaration,
+            body,
+            span,
+        })
+    }
+
+    pub fn parse_class_declaration(&mut self, is_public: bool) -> Result<ClassDeclaration, Error> {
         let class_span = self.get_current_span()?;
         self.eat(TokenKind::Keyword(Keyword::Class))?;
         let name = self.parse_identifier()?;
 
         let mut fields = Vec::new();
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
+        let mut field_index: u32 = 0;
         loop {
             if let Some(TokenKind::Symbol(Symbol::CurlyBraceClose)) = self.get_current_token() {
                 self.advance();
@@ -261,8 +345,11 @@ impl Parser {
             fields.push(ClassField {
                 field_name,
                 type_name,
+                index: field_index,
                 span,
             });
+
+            field_index += 1;
 
             match self.get_current_token() {
                 Some(TokenKind::Symbol(Symbol::Comma)) => {
@@ -281,6 +368,7 @@ impl Parser {
         Ok(ClassDeclaration {
             name,
             fields,
+            is_public,
             span: class_span,
         })
     }
@@ -310,12 +398,14 @@ impl Parser {
         let span = self.get_current_span()?;
 
         if let Some(TokenKind::Operator(Operator::Assign(op))) = self.get_current_token() {
-            Ok(Expression::VarAssignment(VarAssignment {
-                operator: op,
-                left: Box::from(self.validate_assign_target(left)?),
-                right: Box::from(self.parse_expression()?),
-                span,
-            }))
+            Ok(Expression::VariableAssignment {
+                variable_assignment: VariableAssignment {
+                    operator: op,
+                    left: Box::from(self.validate_assign_target(left)?),
+                    right: Box::from(self.parse_expression()?),
+                    span,
+                },
+            })
         } else {
             Ok(left)
         }
@@ -325,7 +415,7 @@ impl Parser {
         match &target {
             Expression::Identifier { .. } => Ok(target),
             Expression::MemberAccess { .. } => Ok(target),
-            Expression::UnaryOp { op, .. } => {
+            Expression::UnaryOp { operator: op, .. } => {
                 if let Operator::Asterisk = op {
                     Ok(target)
                 } else {
@@ -346,21 +436,22 @@ impl Parser {
 
     pub fn parse_if_expression(&mut self) -> Result<Expression, Error> {
         let span = self.get_current_span()?;
-        self.advance();
+        self.eat(TokenKind::Keyword(Keyword::If))?;
         let condition = self.parse_expression()?;
-        let body = self.parse_statement()?;
-        let else_body = if let Some(TokenKind::Keyword(Keyword::Else)) = self.get_current_token() {
-            self.advance();
-            Some(self.parse_statement()?)
+        let body = self.parse_expression()?;
+        let else_body = if let Some(TokenKind::Keyword(Keyword::Else)) = self.advance() {
+            Some(self.parse_expression()?)
         } else {
             None
         };
-        Ok(Expression::If(IfExpression {
-            condition: Box::from(condition),
-            body: Box::from(body),
-            else_body: Box::from(else_body),
-            span: span,
-        }))
+        Ok(Expression::If {
+            expression: IfExpression {
+                condition: Box::from(condition),
+                body: Box::from(body),
+                else_body: Box::from(else_body),
+                span,
+            },
+        })
     }
 
     pub fn parse_class_initializer(&mut self) -> Result<Expression, Error> {
@@ -369,6 +460,7 @@ impl Parser {
         self.eat(TokenKind::Symbol(Symbol::CurlyBraceOpen))?;
 
         let mut fields = Vec::new();
+        let mut field_index: u32 = 0;
         loop {
             if let Some(TokenKind::Symbol(Symbol::CurlyBraceClose)) = self.get_current_token() {
                 self.advance();
@@ -382,20 +474,28 @@ impl Parser {
                 self.advance();
             } else if let Some(TokenKind::Symbol(Symbol::Comma)) = self.get_current_token() {
                 self.advance();
-                let value = Expression::Identifier(field_name.clone());
+                let value = Expression::Identifier {
+                    name: field_name.clone(),
+                };
                 fields.push(ClassInitializerField {
                     field_name: field_name.clone(),
                     value,
+                    index: field_index,
                     span: field_span,
                 });
+                field_index += 1;
+
                 continue;
             } else if let Some(TokenKind::Symbol(Symbol::CurlyBraceClose)) =
                 self.get_current_token()
             {
-                let value = Expression::Identifier(field_name.clone());
+                let value = Expression::Identifier {
+                    name: field_name.clone(),
+                };
                 fields.push(ClassInitializerField {
                     field_name: field_name.clone(),
                     value,
+                    index: field_index,
                     span: self.get_current_span()?,
                 });
                 break;
@@ -410,8 +510,10 @@ impl Parser {
             fields.push(ClassInitializerField {
                 field_name,
                 value,
+                index: field_index,
                 span: field_span,
             });
+            field_index += 1;
 
             if let Some(TokenKind::Symbol(Symbol::Comma)) = self.get_current_token() {
                 self.advance();
@@ -419,20 +521,24 @@ impl Parser {
                 self.expect(&TokenKind::Symbol(Symbol::CurlyBraceClose))?;
             }
         }
-        Ok(Expression::StructInitializer(ClassInitializer {
-            class_name: name,
-            fields,
-            span: init_span,
-        }))
+        Ok(Expression::ClassInitializer {
+            class_initializer: ClassInitializer {
+                class_name: name,
+                fields,
+                span: init_span,
+            },
+        })
     }
 
     pub fn parse_expression(&mut self) -> Result<Expression, Error> {
         let curr = self.get_current_token();
-        // Check for If, Block, and Fn Calls
+        // Check for If, Block, and Function Calls
         if let Some(TokenKind::Keyword(Keyword::If)) = curr {
             return self.parse_if_expression();
         } else if let Some(TokenKind::Symbol(Symbol::CurlyBraceOpen)) = curr {
-            return Ok(Expression::Block(self.parse_block()?));
+            return Ok(Expression::Block {
+                block: self.parse_block()?,
+            });
         } else if let Some(TokenKind::Identifier(_)) = curr {
             if let Some(TokenKind::Symbol(Symbol::CurlyBraceOpen)) = self.lookahead() {
                 return Ok(self.parse_class_initializer()?);
@@ -517,12 +623,14 @@ impl Parser {
         let mut left = builder(self)?;
 
         while let Some(TokenKind::Operator(op)) = self.get_current_token() {
+            let span = self.get_current_span()?;
             self.advance();
             let right = builder(self)?;
             left = Expression::LogicalOp {
                 left: Box::from(left),
                 right: Box::from(right),
-                op,
+                operator: op,
+                span,
             };
         }
 
@@ -537,12 +645,14 @@ impl Parser {
         let mut left = builder(self)?;
 
         while let Some(TokenKind::Operator(op)) = self.get_current_token() {
+            let span = self.get_current_span()?;
             self.advance();
             let right = builder(self)?;
             left = Expression::BinaryOp {
                 left: Box::from(left),
                 right: Box::from(right),
-                op,
+                operator: op,
+                span,
             };
         }
 
@@ -578,13 +688,15 @@ impl Parser {
 
     pub fn parse_unary_expression(&mut self) -> Result<Expression, Error> {
         let curr = self.get_current_token();
+        let span = self.get_current_span()?;
         match curr {
             Some(TokenKind::Operator(op)) => {
                 self.advance();
                 if op.is_unary() {
                     Ok(Expression::UnaryOp {
-                        op,
-                        expr: Box::from(self.parse_unary_expression()?),
+                        operator: op,
+                        expression: Box::from(self.parse_unary_expression()?),
+                        span,
                     })
                 } else {
                     Err(self.generate_error(ErrorKind::ExpectedButFound(
@@ -603,7 +715,7 @@ impl Parser {
     }
 
     pub fn parse_call_member_expression(&mut self) -> Result<Expression, Error> {
-        let member = self.parse_member_expr()?;
+        let member = self.parse_member_expression()?;
 
         if let Some(TokenKind::Symbol(Symbol::ParenthesesOpen)) = self.get_current_token() {
             self.parse_call_expression(member)
@@ -613,11 +725,13 @@ impl Parser {
     }
 
     fn parse_call_expression(&mut self, callee: Expression) -> Result<Expression, Error> {
-        Ok(Expression::FnCall(FunctionCall {
-            callee: Box::from(callee),
-            args: self.parse_arguments()?,
-            span: self.get_current_span()?,
-        }))
+        Ok(Expression::FunctionCall {
+            function_call: FunctionCall {
+                callee: Box::from(callee),
+                args: self.parse_arguments()?,
+                span: self.get_current_span()?,
+            },
+        })
     }
 
     pub fn parse_arguments(&mut self) -> Result<Vec<Expression>, Error> {
@@ -650,56 +764,70 @@ impl Parser {
         Ok(args)
     }
 
-    pub fn parse_member_expr(&mut self) -> Result<Expression, Error> {
-        let mut object: Expression = self.parse_primary_expr()?;
+    pub fn parse_member_expression(&mut self) -> Result<Expression, Error> {
+        let mut object: Expression = self.parse_primary_expression()?;
 
         while let Some(TokenKind::Symbol(Symbol::Dot))
         | Some(TokenKind::Symbol(Symbol::SquareBracketOpen)) = self.get_current_token()
         {
             if let Some(TokenKind::Symbol(Symbol::Dot)) = self.get_current_token() {
                 self.advance();
-                let prop = Expression::Identifier(self.parse_identifier()?);
-                object = Expression::MemberAccess(MemberAccess {
-                    object: Box::from(object),
-                    member: Box::from(prop),
-                    computed: false,
-                });
+                let span = self.get_current_span()?;
+                let prop = Expression::Identifier {
+                    name: self.parse_identifier()?,
+                };
+                object = Expression::MemberAccess {
+                    member_access: MemberAccess {
+                        object: Box::from(object),
+                        member: Box::from(prop),
+                        computed: false,
+                        span,
+                    },
+                };
             } else {
                 self.advance();
+                let span = self.get_current_span()?;
                 let prop = self.parse_expression()?;
                 self.expect(&TokenKind::Symbol(Symbol::SquareBracketClose))?;
                 self.advance();
-                object = Expression::MemberAccess(MemberAccess {
-                    object: Box::from(object),
-                    member: Box::from(prop),
-                    computed: true,
-                });
+                object = Expression::MemberAccess {
+                    member_access: MemberAccess {
+                        object: Box::from(object),
+                        member: Box::from(prop),
+                        computed: true,
+                        span,
+                    },
+                };
             }
         }
 
         Ok(object)
     }
 
-    pub fn parse_primary_expr(&mut self) -> Result<Expression, Error> {
+    pub fn parse_primary_expression(&mut self) -> Result<Expression, Error> {
         match self.get_current_token() {
-            Some(TokenKind::Literal(literal)) => Ok(self.parse_literal()?),
+            Some(TokenKind::Literal(_)) => Ok(self.parse_literal()?),
             Some(TokenKind::Symbol(Symbol::ParenthesesOpen)) => {
                 Ok(self.parse_parentheses_expression()?)
             }
-            Some(TokenKind::Identifier(_)) => Ok(Expression::Identifier(self.parse_identifier()?)),
+            Some(TokenKind::Identifier(_)) => Ok(Expression::Identifier {
+                name: self.parse_identifier()?,
+            }),
             Some(_) => Ok(self.parse_left_hand_side_expression()?),
             None => Err(self.generate_error(ErrorKind::UnexpectedToken("EOF".to_string()))),
         }
     }
 
     pub fn parse_literal(&mut self) -> Result<Expression, Error> {
+        let span = self.get_current_span()?;
+
         let Some(TokenKind::Literal(literal)) = self.get_current_token() else {
             return Err(self.generate_error(ErrorKind::ExpectedButFound("literal".to_string(),
                                                                        format!("{:?}",
                                                                        self.get_current_token().unwrap().to_string()))));
         };
         self.advance();
-        Ok(Expression::Literal(literal))
+        Ok(Expression::Literal { literal, span })
     }
 
     fn parse_parentheses_expression(&mut self) -> Result<Expression, Error> {
@@ -732,10 +860,72 @@ impl Parser {
             )))
         }
     }
+
+    pub fn parse_import_declaration(
+        &mut self,
+        current_module: Rc<RefCell<Module>>,
+    ) -> Result<Import, Error> {
+        let span = self.get_current_span()?;
+        self.eat(TokenKind::Keyword(Keyword::Import))?;
+        let path = self.parse_path()?;
+        let abstract_path = self.convert_path_to_abstract(path.clone(), current_module)?;
+        self.eat(TokenKind::Symbol(Symbol::Semicolon))?;
+        Ok(Import {
+            local: path[0] == "self",
+            item_path: abstract_path,
+            span,
+        })
+    }
+
+    pub fn parse_path(&mut self) -> Result<Vec<String>, Error> {
+        let mut path = Vec::new();
+        loop {
+            if let Some(TokenKind::Identifier(ident)) = self.get_current_token() {
+                path.push(ident.clone());
+                self.advance();
+            } else {
+                return Err(self.generate_error(ErrorKind::ExpectedButFound(
+                    "path identifier".to_string(),
+                    self.get_current_token().unwrap().to_string(),
+                )));
+            }
+            if let Some(TokenKind::Symbol(Symbol::DoubleColon)) = self.get_current_token() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(path)
+    }
+
+    fn convert_path_to_abstract(
+        &self,
+        path: Vec<String>,
+        current_mod: Rc<RefCell<Module>>,
+    ) -> Result<Vec<String>, Error> {
+        let mut path = path;
+        let mut current_path = current_mod.borrow().path.clone();
+        let mut i = 0;
+        while i < path.len() {
+            match path[i].as_str() {
+                "global" => {
+                    if i != 0 {
+                        return Err(self.generate_error(ErrorKind::GlobalIsNotAtFirst));
+                    }
+                    i += 1;
+                }
+                _ => {
+                    i += 1;
+                }
+            }
+        }
+        current_path.append(&mut path);
+        Ok(current_path)
+    }
 }
 
-pub fn parse(tokens: Vec<Token>) -> Result<Module, Error> {
+pub fn parse(tokens: Vec<Token>, module_name: String) -> Result<Rc<RefCell<Module>>, Error> {
     let mut parser = Parser::new(tokens);
-    let module = parser.parse_module_declaration()?;
+    let module = parser.parse_module(module_name, None, None)?;
     Ok(module)
 }
